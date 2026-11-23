@@ -8,6 +8,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
+#recBox{position:fixed;right:16px;bottom:16px;width:min(460px,calc(100vw - 32px));background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;z-index:60;box-shadow:0 12px 40px rgba(0,0,0,.35);display:grid;gap:10px}
+#recBox .rBody{max-height:180px;overflow:auto;white-space:pre-wrap;font-size:14px;line-height:1.45;background:rgba(127,127,127,.08);border-radius:10px;padding:10px;min-height:60px}
+#recBox .rSt{color:var(--red,#C0392B)}
+
 /* VOICE: painel de trabalho do gestor comercial, direto e sóbrio
    IDEA: a prancheta de gestão da Reserva Imob — tudo do dia numa mesa só
    PICTURE: o próprio painel (tarefas, registro do dia, carteira de corretores)
@@ -428,6 +432,48 @@ function render(){
 function taskRow(t){const late=t.prazo&&t.prazo<today()&&t.status!=='done';
  return `<div class="task ${t.status==='done'?'done':''}"><input type="checkbox" data-act="tgl" data-id="${t.id}" ${t.status==='done'?'checked':''} aria-label="Concluir"><div style="flex:1;cursor:pointer" data-act="editT" data-id="${t.id}"><div class="t">${esc(t.titulo)}</div><div class="sm">${t.prio==='A'?'<span class="tag A">Prioridade A</span>':''}${t.cat?`<span class="tag">${esc(t.cat)}</span>`:''}${t.corretor?`<span class="tag">${esc(corNome(t.corretor))}</span>`:''}${t.prazo?`<span class="tag ${late?'late':''}">${late?'atrasada · ':''}${fd(t.prazo)}</span>`:''}</div>${t.status==='done'&&t.notas?`<div class="sm mute">${esc(t.notas)}</div>`:''}</div></div>`}
 
+
+const RO_OK=new Set(['editR','editT','back','close','cbCopy','cliOpen','ctab','dl','exp','goT','ldCopy','ldPdf','lider','liderW','logout','openC','pickDia','rep','repPer','vMes','nop','cfClear','vClear']);
+const REC={on:false};
+function recFmt(ms){const s=Math.max(0,Math.floor(ms/1000));return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')}
+function recEl(){return REC.on&&REC.at()}
+function recPaint(){const b=document.getElementById('recBox');if(!b||!REC.on)return;const q=k=>b.querySelector(k);
+ q('.rSt').textContent=REC.paused?'⏸ Pausado':'● Gravando';q('.rT').textContent=recFmt(REC.at());
+ q('.rTx').textContent=REC.txt.slice(-700);q('.rPar').textContent=REC.par||'';q('.rMsg').textContent=REC.msg||'A transcrição é salva sozinha a cada 20 segundos. Pode deixar o celular/notebook perto de vocês dois.';
+ q('[data-act=recPause]').textContent=REC.paused?'Continuar':'Pausar'}
+function recBoxBuild(){let b=document.getElementById('recBox');if(b)b.remove();b=document.createElement('div');b.id='recBox';
+ b.innerHTML=`<div class="row sp"><b><span class="rSt"></span> · 1:1 com ${esc(REC.nome)}</b><b class="rT" style="font-variant-numeric:tabular-nums"></b></div><div class="rBody"><span class="rTx"></span> <i class="rPar mute"></i></div><div class="row" style="justify-content:flex-end"><button class="btn" data-act="recPause">Pausar</button><button class="btn pri" data-act="recStop">Encerrar e salvar</button></div><div class="sm mute rMsg"></div>`;
+ document.body.appendChild(b);recPaint()}
+function recSR(){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR)return null;const r=new SR();r.lang='pt-BR';r.continuous=true;r.interimResults=true;
+ r.onresult=e=>{let p='';for(let i=e.resultIndex;i<e.results.length;i++){const t=e.results[i][0].transcript;if(e.results[i].isFinal){const m=Math.floor(REC.at()/60000);if(m>=REC.mark+2||!REC.txt){REC.mark=m;REC.txt+=(REC.txt?'\n':'')+'['+recFmt(REC.at())+'] '}REC.txt+=t.trim()+' '}else p+=t}REC.par=p;recPaint()};
+ r.onerror=e=>{if(e.error==='not-allowed'||e.error==='service-not-allowed'){REC.msg='Microfone bloqueado: clique no cadeado da barra de endereço e permita o microfone.';recPaint()}else if(e.error==='network'){REC.msg='Sem internet no momento: a transcrição volta quando a conexão voltar.';recPaint()}};
+ r.onend=()=>{if(REC.on&&!REC.paused&&REC.sr===r){setTimeout(()=>{try{r.start()}catch(_){}},250)}};
+ return r}
+async function recSave(status){const c=cor(REC.cor);const o={...(REC.id?S.reunioes.find(x=>x.id===REC.id)||{}:{}),id:REC.id,data:REC.data,tipo:'1:1',corretor:REC.cor,titulo:'1:1 com '+(c?c.nome:''),transcricao:REC.txt.trim(),duracao:recFmt(REC.at()),status};
+ try{REC.id=await save('reunioes',o)}catch(e){REC.msg='Não consegui salvar agora, vou tentar de novo.';recPaint()}}
+async function recStart(cid){if(REC.on)return toast('Já existe uma gravação em andamento.');const c=cor(cid);if(!c)return;
+ const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR)return toast('Use o Google Chrome para gravar e transcrever.');
+ Object.assign(REC,{on:true,paused:false,cor:cid,nome:c.nome,data:today(),txt:'',par:'',msg:'',id:null,mark:-9,t0:Date.now(),pausedMs:0,pausedAt:0,chunks:[],audio:null});
+ REC.at=()=>Date.now()-REC.t0-REC.pausedMs-(REC.paused?Date.now()-REC.pausedAt:0);
+ recBoxBuild();
+ try{REC.stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});REC.mr=new MediaRecorder(REC.stream);REC.mr.ondataavailable=e=>{if(e.data&&e.data.size)REC.chunks.push(e.data)};REC.mr.start(10000)}catch(e){REC.msg='Microfone bloqueado: clique no cadeado da barra de endereço e permita o microfone.';recPaint()}
+ REC.sr=recSR();try{REC.sr.start()}catch(_){}
+ try{REC.wl=await navigator.wakeLock?.request('screen')}catch(_){}
+ REC.tick=setInterval(recPaint,1000);REC.auto=setInterval(()=>{if(REC.txt.trim())recSave('gravando')},20000)}
+function recPause(){if(!REC.on)return;if(!REC.paused){REC.paused=true;REC.pausedAt=Date.now();try{REC.sr.stop()}catch(_){}try{REC.mr&&REC.mr.state==='recording'&&REC.mr.pause()}catch(_){}}
+ else{REC.pausedMs+=Date.now()-REC.pausedAt;REC.paused=false;try{REC.sr.start()}catch(_){}try{REC.mr&&REC.mr.state==='paused'&&REC.mr.resume()}catch(_){}}recPaint()}
+async function recStop(){if(!REC.on)return;const sr=REC.sr;REC.sr=null;try{sr&&sr.stop()}catch(_){}clearInterval(REC.tick);clearInterval(REC.auto);
+ if(REC.paused){REC.pausedMs+=Date.now()-REC.pausedAt;REC.paused=false}
+ const dur=REC.at();REC.at=()=>dur;
+ await new Promise(r=>{if(REC.mr&&REC.mr.state!=='inactive'){REC.mr.onstop=r;REC.mr.stop()}else r()});
+ try{REC.stream&&REC.stream.getTracks().forEach(t=>t.stop())}catch(_){}try{REC.wl&&REC.wl.release()}catch(_){}
+ if(REC.par){REC.txt+=REC.par.trim()+' ';REC.par=''}
+ await recSave('transcrito');
+ const b=document.getElementById('recBox');const n=REC.txt.trim().split(/\s+/).filter(Boolean).length;
+ let au='';if(REC.chunks.length){const bl=new Blob(REC.chunks,{type:REC.chunks[0].type||'audio/webm'});const url=URL.createObjectURL(bl);au=`<a class="btn" href="${url}" download="1a1-${esc((REC.nome||'').toLowerCase().replace(/[^a-z0-9]+/g,'-'))}-${REC.data}.webm">Baixar áudio (${(bl.size/1048576).toFixed(1)} MB)</a>`}
+ if(b)b.innerHTML=`<div class="row sp"><b>✓ 1:1 com ${esc(REC.nome)} salvo · ${recFmt(dur)}</b></div><p class="sm">Transcrição salva na reunião (${n} palavras). Para organizar resumo, combinados, plano de ação e cobranças, é só me pedir no Claude: <b>“organiza o 1:1 com ${esc((REC.nome||'').split(' ')[0])} de hoje”</b>.</p><div class="row" style="justify-content:flex-end">${au}<button class="btn" data-act="recOpen" data-id="${REC.id}">Ver transcrição</button><button class="btn pri" data-act="recClose">Fechar</button></div>`;
+ REC.on=false}
+window.addEventListener('beforeunload',e=>{if(REC.on){e.preventDefault();e.returnValue=''}});
 function vHoje(){const d=today(),op=openTasks(),late=op.filter(t=>t.prazo&&t.prazo<d),doneT=S.tarefas.filter(t=>t.feito===d).length;
  const m=d.slice(0,7),oo=S.reunioes.filter(r=>r.tipo==='1:1'&&(r.data||'').startsWith(m)).length,mr=mesRow(m);
  const foco=op.filter(t=>!t.prazo||t.prazo<=d).sort((a,b)=>(a.prio||'B').localeCompare(b.prio||'B')||(a.prazo||'9').localeCompare(b.prazo||'9'));
@@ -534,7 +580,7 @@ function vCorretores(){if(sel&&sel.cor&&cor(sel.cor))return vCor(cor(sel.cor));c
 function vCor(c){const rs=S.reunioes.filter(r=>r.corretor===c.id).sort((a,b)=>(b.data||'').localeCompare(a.data||''));const ts=S.tarefas.filter(t=>t.corretor===c.id&&t.status!=='done');
  const cvs=S.vendas.filter(v=>v.corretor===c.id&&v.status!=='Distrato').sort((a,b)=>(b.data||'').localeCompare(a.data||'')),vg=cvs.reduce((s,v)=>s+(+v.vgv||0),0),cm=cvs.reduce((s,v)=>s+vlvOf(v),0);
  const li=(arr,emp)=>arr&&arr.length?`<ul class="list">${arr.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:`<p class="empty">${emp}</p>`;
- return `<div class="row sp"><button class="btn mini" data-act="back">← Todos os corretores</button><div class="row"><button class="btn dk" data-act="rep" data-k="cor" data-a="${c.id}">Relatório PDF / Drive</button><button class="btn" data-act="editC" data-id="${c.id}">Editar perfil</button></div></div>
+ return `<div class="row sp"><button class="btn mini" data-act="back">← Todos os corretores</button><div class="row"><button class="btn pri" data-act="rec1a1" data-id="${c.id}">● Iniciar 1:1 e gravar</button><button class="btn dk" data-act="rep" data-k="cor" data-a="${c.id}">Relatório PDF / Drive</button><button class="btn" data-act="editC" data-id="${c.id}">Editar perfil</button></div></div>
  <div class="row" style="margin:14px 0"><div class="av" style="width:56px;height:56px;font-size:18px">${esc(ini(c.nome))}</div><div><h2 style="font-size:26px">${esc(c.nome)}</h2><div class="mute sm">${esc(c.status||'Ativo')}${c.entrada?' · no time desde '+fd(c.entrada):''}${c.pasta?` · <a href="${esc(c.pasta)}" target="_blank" rel="noopener">pasta no Drive</a>`:''}</div></div></div>
  <div class="kpis"><div class="kpi"><b>${rs.filter(r=>r.tipo==='1:1').length}</b><span>1:1 registrados</span></div><div class="kpi"><b>${lastMeet(c.id)?fd(lastMeet(c.id)):'—'}</b><span>último 1:1</span></div><div class="kpi"><b>${cvs.length}</b><span>vendas · ${brlC(vg)} VGV</span></div><div class="kpi"><b>${brlC(cm)}</b><span>VLV gerado</span></div><div class="kpi"><b>${(c.acoes||[]).filter(x=>!x.done).length}</b><span>ações em aberto</span></div></div>
  ${prepBox(c)}<div class="grid2"><div>
@@ -546,7 +592,7 @@ function vCor(c){const rs=S.reunioes.filter(r=>r.corretor===c.id).sort((a,b)=>(b
  </div><div>
  <section class="box"><div class="row sp"><h3>Inteligência comercial — notas</h3></div><div class="row" style="margin:8px 0"><input id="notaTxt" placeholder="O que você identificou hoje?" data-cid="${c.id}"><button class="btn mini pri" data-act="addNota" data-id="${c.id}">Adicionar</button></div>
  ${(c.notas||[]).length?`<div class="tl">${c.notas.slice().sort((a,b)=>(b.d||'').localeCompare(a.d||'')).map(n=>`<div><b class="sm">${fd(n.d)}</b><div>${esc(n.t)}</div></div>`).join('')}</div>`:'<p class="empty">Registre aqui o que observar no dia a dia.</p>'}</section>
- <section class="box" style="margin-top:14px"><div class="row sp"><h3>Reuniões</h3><button class="btn mini" data-act="newR" data-c="${c.id}">+ 1:1</button></div>${rs.length?rs.map(r=>`<div class="card" data-act="editR" data-id="${r.id}"><div class="row sp"><b>${fd(r.data)} · ${esc(r.tipo)}</b>${r.link?`<a class="sm" href="${esc(r.link)}" target="_blank" rel="noopener" data-act="nop">ata</a>`:''}</div><div class="sm">${esc(r.titulo)}</div><div class="sm mute">${esc((r.resumo||'').slice(0,180))}</div></div>`).join(''):'<p class="empty">Nenhuma reunião.</p>'}</section>
+ <section class="box" style="margin-top:14px"><div class="row sp"><h3>Reuniões</h3><button class="btn mini" data-act="newR" data-c="${c.id}">+ 1:1</button></div>${rs.length?rs.map(r=>`<div class="card" data-act="editR" data-id="${r.id}"><div class="row sp"><b>${fd(r.data)} · ${esc(r.tipo)}</b>${r.link?`<a class="sm" href="${esc(r.link)}" target="_blank" rel="noopener" data-act="nop">ata</a>`:''}</div><div class="sm">${esc(r.titulo)}</div>${r.status==='transcrito'||r.status==='gravando'?`<div class="sm" style="color:var(--amber,#C98A00)">${r.status==='gravando'?'Gravação interrompida, transcrição parcial salva':'Transcrição pronta, aguardando organização'}</div>`:''}<div class="sm mute">${esc((r.resumo||'').slice(0,180))}</div></div>`).join(''):'<p class="empty">Nenhuma reunião.</p>'}</section>
  <section class="box" style="margin-top:14px"><div class="row sp"><h3>Tarefas ligadas</h3><button class="btn mini" data-act="newT" data-c="${c.id}">+ Tarefa</button></div>${ts.map(taskRow).join('')||'<p class="empty">Nenhuma aberta.</p>'}</section>
  </div></div>`}
 
@@ -582,7 +628,7 @@ const close=()=>$('#dlg').close();
 function taskForm(t){t=t||{status:'todo',prio:'B'};
  form(t.id?'Editar tarefa':'Nova tarefa',[{k:'titulo',l:'Tarefa',full:1},{k:'cat',l:'Categoria',t:'sel',o:['',...CATS]},{k:'prio',l:'Prioridade',t:'sel',o:[['A','A — alta'],['B','B — média'],['C','C — baixa']]},{k:'prazo',l:'Prazo',t:'date'},{k:'status',l:'Status',t:'sel',o:[['todo','A fazer'],['doing','Fazendo'],['done','Feito']]},{k:'corretor',l:'Corretor',t:'sel',o:[['','—'],...S.corretores.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(c=>[c.id,c.nome])]},{k:'feito',l:'Concluída em',t:'date'},{k:'notas',l:'Notas',t:'area'}],t,async o=>{if(!o.titulo)return toast('Dê um nome à tarefa');if(o.status==='done'&&!o.feito)o.feito=today();if(o.status!=='done')o.feito='';await save('tarefas',{...t,...o});close()},t.id?`<button class="btn del" data-act="delX" data-c="tarefas" data-id="${t.id}" style="margin-right:auto">Excluir</button>`:'')}
 function meetForm(r){r=r||{data:today(),tipo:'1:1'};
- form(r.id?'Editar reunião':'Nova reunião',[{k:'data',l:'Data',t:'date'},{k:'tipo',l:'Tipo',t:'sel',o:TIPOS},{k:'corretor',l:'Corretor',t:'sel',o:[['','—'],...S.corretores.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(c=>[c.id,c.nome])]},{k:'titulo',l:'Assunto'},{k:'pauta',l:'Pauta',t:'area'},{k:'resumo',l:'Resumo / o que foi tratado',t:'area',h:120},{k:'encaminhamentos',l:'Encaminhamentos / combinados',t:'area',hint:'um por linha — viram cobrança se vencerem',h:100},{k:'prazoEnc',l:'Prazo dos combinados',t:'date',hint:'padrão: 7 dias'},{k:'link',l:'Link da ata no Drive',full:1}],r,async o=>{const id=await save('reunioes',{...r,...o});
+ form(r.id?'Editar reunião':'Nova reunião',[{k:'data',l:'Data',t:'date'},{k:'tipo',l:'Tipo',t:'sel',o:TIPOS},{k:'corretor',l:'Corretor',t:'sel',o:[['','—'],...S.corretores.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(c=>[c.id,c.nome])]},{k:'titulo',l:'Assunto'},{k:'pauta',l:'Pauta',t:'area'},{k:'resumo',l:'Resumo / o que foi tratado',t:'area',h:120},{k:'encaminhamentos',l:'Encaminhamentos / combinados',t:'area',hint:'um por linha — viram cobrança se vencerem',h:100},{k:'prazoEnc',l:'Prazo dos combinados',t:'date',hint:'padrão: 7 dias'},{k:'link',l:'Link da ata no Drive',full:1},{k:'transcricao',l:'Transcrição da gravação',t:'area',h:160,full:1}],r,async o=>{const id=await save('reunioes',{...r,...o});
   if(document.getElementById('mkTasks')?.checked&&o.encaminhamentos){for(const l of o.encaminhamentos.split('\n').map(s=>s.replace(/^[•\-\s]+/,'').trim()).filter(Boolean))await save('tarefas',{titulo:l,cat:o.tipo==='1:1'?'1:1':'Outro',prio:'B',status:'todo',corretor:o.corretor,notas:'Da reunião de '+fd(o.data),criado:today()})}close()},
  `${r.id?`<button class="btn del" data-act="delX" data-c="reunioes" data-id="${r.id}">Excluir</button><button class="btn" data-act="rep" data-k="ata" data-a="${r.id}">PDF / Drive</button>`:''}<label style="margin:0 auto 0 4px;display:flex;gap:6px;align-items:center"><input type="checkbox" id="mkTasks" style="width:18px;height:18px"> criar tarefas dos encaminhamentos</label>`)}
 function corForm(c){c=c||{status:'Ativo'};
@@ -646,6 +692,9 @@ async function toDrive(){const st=$('#repSt');const mcp=await capUse('mcp');if(!
 /* ---------- eventos ---------- */
 document.addEventListener('click',async ev=>{const el=ev.target.closest('[data-act]');if(!el)return;const A=el.dataset.act,id=el.dataset.id;
  if(A==='logout')return centralAuth.logout();
+ if(!window.isAdm&&!RO_OK.has(A)){ev.preventDefault();return toast('Seu acesso é somente para visualização.')}
+ if(A==='rec1a1')return recStart(id);if(A==='recPause')return recPause();if(A==='recStop')return recStop();if(A==='recClose'){REC.on=false;const b=document.getElementById('recBox');if(b)b.remove();return}
+ if(A==='recOpen'){const b=document.getElementById('recBox');if(b)b.remove();const r=S.reunioes.find(x=>x.id===el.dataset.id);return r&&meetForm(r)}
  if(A==='imp'){if(!window.isAdm)return toast('Só o administrador importa backup');const inp=document.createElement('input');inp.type='file';inp.accept='.json';inp.onchange=async()=>{try{const j=JSON.parse(await inp.files[0].text());let n=0;for(const c of COLS){let arr=Array.isArray(j[c])?j[c]:[];if(c==='docs')arr=arr.filter(x=>(x.data||x).cat!=='Comissões');if(arr.length){n+=await centralImport(c,arr)}}toast(n+' registros importados')}catch(e){toast('Falhou: '+(e.message||e))}};inp.click();return}
  if(A==='mic'){if(!dict)return;if(voice.state!=='idle'){dict.stop().catch(()=>{});return}dict.start({language:'pt-BR'}).catch(e=>{if(e.code==='unavailable'){dict.start().catch(()=>{})}else if(e.code==='not_granted')toast('Microfone não autorizado. Digite o texto.');else if(e.code!=='stopped'&&e.code!=='dismissed')toast('Não deu para gravar ('+e.code+')')});return}
  if(A==='lider')return liderDlg(el.dataset.d,'dia');
@@ -712,7 +761,7 @@ document.addEventListener('keydown',ev=>{if(ev.key==='Enter'&&ev.target.id==='no
 function route(){const h=location.hash.slice(1);view=['hoje','cobrancas','tarefas','diario','corretores','reunioes','crm','vendas','empresa'].includes(h)?h:'hoje';if(view!=='corretores'&&view!=='diario')sel=null;render()}
 addEventListener('hashchange',()=>{sel=null;route()});
 route();
-window.isAdm=false;centralAuth.start(st=>{window.isAdm=st.perfil.papel==='admin';$('#whoName').textContent=st.perfil.nome+(window.isAdm?'':' · edita só os próprios registros');const h=document.querySelector('.brand h1');if(h)h.textContent='Central da Gestão — '+st.perfil.nome;boot();voiceInit()});
+window.isAdm=false;centralAuth.start(st=>{window.isAdm=st.perfil.papel==='admin';$('#whoName').textContent=st.perfil.nome+(window.isAdm?'':' · somente visualização');if(!window.isAdm){document.body.classList.add('ro');const stl=document.createElement('style');stl.textContent='body.ro [data-act]:not('+[...RO_OK].map(a=>'[data-act="'+a+'"]').join(',')+'):not(.card){display:none!important}body.ro textarea,body.ro #notaTxt{pointer-events:none;opacity:.8}';document.head.appendChild(stl)}const h=document.querySelector('.brand h1');if(h)h.textContent='Central da Gestão — '+st.perfil.nome;boot();voiceInit()});
 }
 </script>
 </body>
