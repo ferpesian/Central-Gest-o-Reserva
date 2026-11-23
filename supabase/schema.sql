@@ -53,7 +53,7 @@ begin
     coalesce(new.raw_user_meta_data->>'nome',
       case lower(new.email)
         when 'fernando@reservaimob.com.br' then 'Fernando'
-        when 'luiz@reservaimob.com.br' then 'Luiz'
+        when 'gollo@reservaimob.com.br' then 'Luiz'
         when 'alan@reservaimob.com.br' then 'Alan'
         else split_part(new.email, '@', 1) end),
     lower(new.email),
@@ -98,7 +98,7 @@ exception when duplicate_object then null; end $$;
 -- 6. Usuários já cadastrados antes deste script ganham perfil
 insert into public.perfis (id, nome, email, papel)
 select u.id,
-  case lower(u.email) when 'fernando@reservaimob.com.br' then 'Fernando' when 'luiz@reservaimob.com.br' then 'Luiz' when 'alan@reservaimob.com.br' then 'Alan' else split_part(u.email,'@',1) end,
+  case lower(u.email) when 'fernando@reservaimob.com.br' then 'Fernando' when 'gollo@reservaimob.com.br' then 'Luiz' when 'alan@reservaimob.com.br' then 'Alan' else split_part(u.email,'@',1) end,
   lower(u.email),
   case when lower(u.email) = 'fernando@reservaimob.com.br' then 'admin' else 'gestor' end
 from auth.users u on conflict (id) do nothing;
