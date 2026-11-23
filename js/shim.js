@@ -3,6 +3,7 @@
    Google Drive (envio de PDF), ditado do navegador e download local. */
 (function () {
   const CFG = window.CENTRAL_CONFIG || {};
+  const pendSenha = /type=(invite|recovery|signup)/.test(location.hash) ? (location.hash.includes('invite')||location.hash.includes('signup') ? 'invite' : 'recovery') : null;
   const sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, {
     auth: { persistSession: true, autoRefreshToken: true }
   });
@@ -180,8 +181,30 @@
   window.centralAuth = {
     async start(onReady) {
       const box = document.getElementById('login');
+      const askPass = (tipo) => new Promise(res => {
+        const f = box.querySelector('form'); const msg = box.querySelector('#lgMsg');
+        box.style.display = 'grid';
+        f.innerHTML = '<div class="logo" style="color:#fff">R</div><h2>' + (tipo === 'invite' ? 'Bem-vindo! Crie sua senha' : 'Crie uma nova senha') + '</h2><div class="mute sm">' + (state.user.email || '') + '</div>' +
+          '<label for="np1">Nova senha (mínimo 8 caracteres)</label><input id="np1" type="password" autocomplete="new-password" minlength="8" required>' +
+          '<label for="np2">Repita a senha</label><input id="np2" type="password" autocomplete="new-password" minlength="8" required>' +
+          '<button type="submit">Salvar senha e entrar</button><p id="lgMsg" class="sm" style="color:var(--red);min-height:1em"></p>';
+        f.onsubmit = async e => {
+          e.preventDefault(); const m = f.querySelector('#lgMsg');
+          const a = f.querySelector('#np1').value, b = f.querySelector('#np2').value;
+          if (a.length < 8) { m.textContent = 'A senha precisa ter pelo menos 8 caracteres.'; return; }
+          if (a !== b) { m.textContent = 'As senhas não são iguais.'; return; }
+          m.textContent = 'Salvando…';
+          const { error } = await sb.auth.updateUser({ password: a });
+          if (error) { m.textContent = 'Não foi possível salvar a senha. Tente de novo.'; return; }
+          history.replaceState(null, '', location.pathname); res();
+        };
+      });
+      let pend = pendSenha;
+      window.__centralPendSenha = t => { pend = t; };
       const go = async session => {
-        state.user = session.user; await loadPerfil();
+        state.user = session.user;
+        if (pend) { const t = pend; pend = null; await askPass(t); }
+        await loadPerfil();
         if (!state.perfil) { box.querySelector('#lgMsg').textContent = 'Seu usuário ainda não tem perfil liberado. Fale com o Fernando.'; box.style.display = 'grid'; return; }
         box.style.display = 'none'; onReady(state);
       };
@@ -207,9 +230,6 @@
   };
   // link de redefinição de senha
   sb.auth.onAuthStateChange(async (ev) => {
-    if (ev === 'PASSWORD_RECOVERY') {
-      const p = prompt('Digite a nova senha (mínimo 8 caracteres):');
-      if (p && p.length >= 8) { const { error } = await sb.auth.updateUser({ password: p }); alert(error ? 'Não foi possível trocar a senha.' : 'Senha alterada.'); }
-    }
+    if (ev === 'PASSWORD_RECOVERY' && window.__centralPendSenha) window.__centralPendSenha('recovery');
   });
 })();
