@@ -173,8 +173,8 @@
 
   /* ---------- login ---------- */
   async function loadPerfil() {
-    const { data } = await sb.from('perfis').select('id,nome,papel,email').eq('id', state.user.id).maybeSingle();
-    state.perfil = data;
+    const { data } = await sb.from('perfis').select('id,nome,papel,email,corretor,ativo').eq('id', state.user.id).maybeSingle();
+    state.perfil = data && data.ativo === false ? null : data;
     const { data: all } = await sb.from('perfis').select('id,nome,papel');
     state.perfis = all || [];
   }
@@ -205,7 +205,7 @@
         state.user = session.user;
         if (pend) { const t = pend; pend = null; await askPass(t); }
         await loadPerfil();
-        if (!state.perfil) { box.querySelector('#lgMsg').textContent = 'Seu usuário ainda não tem perfil liberado. Fale com o Fernando.'; box.style.display = 'grid'; return; }
+        if (!state.perfil) { box.querySelector('#lgMsg').textContent = 'Seu acesso não está liberado ou foi desativado. Fale com o Fernando.'; box.style.display = 'grid'; return; }
         box.style.display = 'none'; onReady(state);
       };
       const { data: { session } } = await sb.auth.getSession();

@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
+body.cor nav,body.cor #sync{display:none!important}
 #recBox{position:fixed;right:16px;bottom:16px;width:min(460px,calc(100vw - 32px));background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;z-index:60;box-shadow:0 12px 40px rgba(0,0,0,.35);display:grid;gap:10px}
 #recBox .rBody{max-height:180px;overflow:auto;white-space:pre-wrap;font-size:14px;line-height:1.45;background:rgba(127,127,127,.08);border-radius:10px;padding:10px;min-height:60px}
 #recBox .rSt{color:var(--red,#C0392B)}
@@ -113,7 +114,7 @@ pre.note{white-space:pre-wrap;font:14px/1.55 Inter;margin:6px 0 0}
   <div class="who"><span class="sync" id="sync">Conectando…</span><span id="whoName"></span><button type="button" data-act="logout">Sair</button></div>
  </div>
  <nav id="nav">
-  <a href="#hoje">Hoje</a><a href="#cobrancas">Cobranças</a><a href="#tarefas">Tarefas</a><a href="#diario">Diário</a><a href="#corretores">Corretores</a><a href="#reunioes">Reuniões</a><a href="#crm">CRM</a><a href="#vendas">Vendas</a><a href="#empresa">Empresa</a>
+  <a href="#hoje">Hoje</a><a href="#cobrancas">Cobranças</a><a href="#tarefas">Tarefas</a><a href="#diario">Diário</a><a href="#corretores">Corretores</a><a href="#reunioes">Reuniões</a><a href="#negociacoes">Negociações</a><a href="#crm">CRM</a><a href="#vendas">Vendas</a><a href="#empresa">Empresa</a>
  </nav>
 </header>
 <div id="login"><form autocomplete="on"><div class="logo" style="color:#fff">R</div><h2>Central da Gestão</h2><div class="mute sm">Reserva Imob · Gestão Comercial BC</div>
@@ -125,7 +126,7 @@ pre.note{white-space:pre-wrap;font:14px/1.55 Inter;margin:6px 0 0}
 <div id="toast"></div>
 <script>
 {
-const COLS=['tarefas','diario','corretores','reunioes','vendas','docs','config','crm','clientes','captacoes','cobrancas'];
+const COLS=['tarefas','diario','corretores','reunioes','vendas','docs','config','crm','clientes','captacoes','cobrancas','atividades','avisos','portal','negociacoes','negfunil','observacoes'];
 const S={};COLS.forEach(c=>S[c]=[]);
 const drafts={};let tDia='';let dict=null,smp=null;const voice={state:'idle',prev:null,busy:false,err:''};let db=null,mode='loading',view='hoje',sel=null,filt={st:'',cat:'',cor:'',q:''},rtipo='';
 const CATS=['1:1','Vitrine','Visita a obra','Agenciamento','Placa','Exclusividade','Leads/Funil','Treinamento','OPS/KPIs','Recrutamento','Plantões','Marketing','Administrativo','Outro'];
@@ -156,6 +157,7 @@ function localSave(){try{localStorage.setItem('crmFP',JSON.stringify(S))}catch(e
 async function save(c,obj){const id=obj.id||uid();const data={...obj};delete data.id;data.upd=new Date().toISOString();
  if(db){try{await db.collection(c).doc(id).set(data)}catch(e){toast(e.code==='quota_exceeded'?'Espaço do banco cheio':'Não salvou: '+(e.message||e.code));return}}
  else{const a=S[c];const i=a.findIndex(x=>x.id===id);if(i>=0)a[i]={id,...data};else a.push({id,...data});localSave();render()}
+ if(window.isAdm&&db&&(c==='corretores'||c==='reunioes'))syncPortal(c==='corretores'?id:data.corretor);
  return id}
 async function del(c,id){if(db){try{await db.collection(c).doc(id).delete()}catch(e){toast(e.message||'Não excluiu');}}else{S[c]=S[c].filter(x=>x.id!==id);localSave();render()}}
 async function boot(){
@@ -423,7 +425,7 @@ function guiaBlocks(id){const c=cor(id),s=stCor(id),L=lastSnap(),d=today();const
 /* ---------- render ---------- */
 function render(){
  document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',a.getAttribute('href')==='#'+view));
- const V={hoje:vHoje,tarefas:vTarefas,diario:vDiario,corretores:vCorretores,reunioes:vReunioes,cobrancas:vCob,crm:vCrm,vendas:vVendas,empresa:vEmpresa}[view]||vHoje;
+ const V={portal:vPortal,admin:vAdmin,negociacoes:vNeg,hoje:vHoje,tarefas:vTarefas,diario:vDiario,corretores:vCorretores,reunioes:vReunioes,cobrancas:vCob,crm:vCrm,vendas:vVendas,empresa:vEmpresa}[view]||vHoje;
  const ae=document.activeElement,keep=ae&&ae.id&&$('#main').contains(ae)?{id:ae.id,v:ae.value,s:ae.selectionStart}:null;
  $('#main').innerHTML=(mode==='local'?'<div class="banner">Sem conexão com o banco do artefato: os dados ficam só neste navegador. Verifique a conexão.</div>':'')+V();
  for(const k in drafts){const el=document.getElementById(k);if(el)el.value=drafts[k]}
@@ -472,6 +474,155 @@ async function recStop(){if(!REC.on)return;const sr=REC.sr;REC.sr=null;try{sr&&s
  if(b)b.innerHTML=`<div class="row sp"><b>✓ 1:1 com ${esc(REC.nome)} salvo · ${recFmt(dur)}</b></div><p class="sm">Transcrição salva na reunião (${n} palavras). Para organizar resumo, combinados, plano de ação e cobranças, é só me pedir no Claude: <b>“organiza o 1:1 com ${esc((REC.nome||'').split(' ')[0])} de hoje”</b>.</p><div class="row" style="justify-content:flex-end">${au}<button class="btn" data-act="recOpen" data-id="${REC.id}">Ver transcrição</button><button class="btn pri" data-act="recClose">Fechar</button></div>`;
  REC.on=false}
 window.addEventListener('beforeunload',e=>{if(REC.on){e.preventDefault();e.returnValue=''}});
+
+/* ---------- papéis: gestor (Luiz/Alan) e corretor ---------- */
+const G_OK=new Set(['negNew','negOpen','negEdit','negMove','negNote','negRec','negRecStop','negEnc','negReab','negDel','negEtapas','etAdd','etUp','etDown','etRm','etSave','negEncTgl','obsNew','obsDel','addRow','rmRow']);
+let FORM_G=false;
+const papel=()=>(window.centralState&&window.centralState.perfil&&window.centralState.perfil.papel)||'admin';
+const meuNome=()=>(window.centralState&&window.centralState.perfil&&window.centralState.perfil.nome)||'Fernando';
+const ddias=a=>a?days(a.slice(0,10),today()):null;
+function openDlg(t,body,foot){FORM_G=false;$('#dlg').classList.remove('gok');$('#dlgT').textContent=t;$('#dlgB').innerHTML=body;$('#dlgF').innerHTML=foot||'<button class="btn" data-act="close">Fechar</button>';if(!$('#dlg').open)$('#dlg').showModal()}
+function formG(...a){form(...a);FORM_G=true;$('#dlg').classList.add('gok')}
+
+/* ---------- portal do corretor: versão liberada para ele ver ---------- */
+let portalT={};
+function portalDoc(slug){const c=cor(slug);if(!c)return null;
+ const rs=S.reunioes.filter(r=>r.corretor===slug&&r.tipo==='1:1').sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+ const comb=rs.flatMap(r=>encList(r).map(e=>({t:e.t,prazo:e.prazo,s:e.s,data:r.data}))).slice(0,40);
+ return {id:slug,corretor:slug,nome:c.nome,fortes:c.fortes||[],desenvolver:c.desenvolver||[],acoes:(c.acoes||[]).map(x=>({t:x.t,done:!!x.done})),feedback:c.feedback||'',combinados:comb,ult1a1:rs[0]?rs[0].data:''}}
+function syncPortal(slug,now){if(!window.isAdm||!slug||!cor(slug))return;clearTimeout(portalT[slug]);const run=()=>{const d=portalDoc(slug);if(d)save('portal',d)};if(now)return run();portalT[slug]=setTimeout(run,1800)}
+
+function vPortal(){const me=(window.centralState.perfil||{}).corretor,P=S.portal[0]||{},d=today();
+ const avs=S.avisos.filter(a=>!a.validade||a.validade>=d).sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+ const atv=S.atividades.filter(a=>a.status!=='feita').sort((a,b)=>(a.prazo||'9').localeCompare(b.prazo||'9'));
+ const pend=[];S.clientes.filter(x=>!['Perdido','Fechamento','Ganho'].includes(x.etapa)).forEach(x=>{const u=ddias(x.ultAtual);
+  if(x.etapa==='Leads')pend.push([3,x,'Está na etapa Leads: mover para Qualificação e iniciar o contato']);
+  else if(x.etapa==='Qualificação'&&u!==null&&u>7)pend.push([2,x,`Qualificação sem atualização há ${u} dias: fazer a cadência final ou encerrar com motivo`]);
+  else if(x.etapa==='Atendimento'&&u!==null&&u>15)pend.push([2,x,`Atendimento sem atualização há ${u} dias: registrar o próximo passo`]);
+  else if(u!==null&&u>7)pend.push([1,x,`Sem atualização no Loft há ${u} dias`]);
+  else if(u===null)pend.push([1,x,'Nunca atualizado no Loft']);
+  if(x.proxAtiv&&x.proxAtiv<d)pend.push([1,x,`Atividade agendada vencida desde ${fd(x.proxAtiv)}`])});
+ pend.sort((a,b)=>b[0]-a[0]);
+ const comb=(P.combinados||[]).filter(e=>e.s!=='feito'),acoes=(P.acoes||[]).filter(x=>!x.done);
+ const y=d.slice(0,4),vs=S.vendas.filter(v=>v.status!=='Distrato').sort((a,b)=>(b.data||'').localeCompare(a.data||'')),vAno=vs.filter(v=>(v.data||'').startsWith(y)).reduce((s,v)=>s+(+v.vgv||0),0);
+ const caps=S.captacoes.filter(c=>c.desatualizada);
+ const li=(a,e)=>a&&a.length?`<ul class="list">${a.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:`<p class="empty">${e}</p>`;
+ if(!me)return '<p class="empty">Seu acesso ainda não está ligado a um corretor. Fale com o Fernando.</p>';
+ return `<h2 style="font-size:26px;margin-bottom:4px">Olá, ${esc((P.nome||meuNome()).split(' ')[0])}!</h2><p class="mute sm" style="margin-top:0">Sua central de gestão: avisos, atividades, pendências e combinados.</p>
+ <div class="kpis"><div class="kpi ${atv.length?'':'ok'}"><b>${atv.length}</b><span>atividades em aberto</span></div><div class="kpi ${pend.length?'':'ok'}"><b>${pend.length}</b><span>pendências no CRM</span></div><div class="kpi"><b>${comb.length+acoes.length}</b><span>combinados em aberto</span></div><div class="kpi"><b>${brlC(vAno)}</b><span>VGV vendido em ${y}</span></div></div>
+ ${avs.length?`<section class="box" style="border-color:var(--green)"><h3>Avisos</h3>${avs.map(a=>`<div style="padding:8px 0;border-bottom:1px solid var(--line)"><b>${esc(a.titulo)}</b> <span class="sm mute">${fd(a.data)}${a.corretor?'':' · para todo o time'}</span><div class="sm" style="white-space:pre-wrap">${esc(a.texto||'')}</div></div>`).join('')}</section>`:''}
+ <div class="grid2" style="margin-top:14px"><div>
+ <section class="box"><h3>Atividades para você</h3>${atv.length?atv.map(a=>`<div style="padding:8px 0;border-bottom:1px solid var(--line)"><div class="row sp"><b>${esc(a.titulo)}</b>${a.prazo?`<span class="tag ${a.prazo<d?'late':''}">${a.prazo<d?'atrasada · ':''}${fd(a.prazo)}</span>`:''}</div>${a.notas?`<div class="sm mute" style="white-space:pre-wrap">${esc(a.notas)}</div>`:''}</div>`).join(''):'<p class="empty">Nenhuma atividade em aberto.</p>'}</section>
+ <section class="box" style="margin-top:14px"><h3>Combinados e plano de ação</h3>${comb.length||acoes.length?`<ul class="list">${comb.map(e=>`<li>${esc(e.t)} <span class="sm mute">· 1:1 de ${fd(e.data)}${e.prazo?' · prazo '+fd(e.prazo):''}</span></li>`).join('')}${acoes.map(x=>`<li>${esc(x.t)}</li>`).join('')}</ul>`:'<p class="empty">Nada em aberto.</p>'}${P.ult1a1?`<p class="sm mute">Último 1:1: ${fd(P.ult1a1)}</p>`:''}</section>
+ <section class="box" style="margin-top:14px"><h3>Feedback da gestão</h3>${P.feedback?`<pre class="note">${esc(P.feedback)}</pre>`:'<p class="empty">Sem feedback registrado.</p>'}
+ <div class="grid2" style="gap:14px;margin-top:8px"><div><h3 class="section-t" style="color:var(--green)">Pontos fortes</h3>${li(P.fortes,'—')}</div><div><h3 class="section-t" style="color:var(--red)">A desenvolver</h3>${li(P.desenvolver,'—')}</div></div></section>
+ </div><div>
+ <section class="box"><h3>Pendências no CRM (${pend.length})</h3>${pend.length?pend.slice(0,60).map(([g,x,t])=>`<div style="padding:7px 0;border-bottom:1px solid var(--line)"><div class="row sp"><b class="sm">${esc(x.nome||x.titulo)}</b><span class="tag ${g>=3?'late':''}">${esc(x.etapa||'')}</span></div><div class="sm">${esc(t)}</div></div>`).join(''):'<p class="empty">Tudo em dia.</p>'}</section>
+ ${caps.length?`<section class="box" style="margin-top:14px"><h3>Captações desatualizadas (${caps.length})</h3>${caps.slice(0,30).map(c=>`<div class="sm" style="padding:4px 0;border-bottom:1px solid var(--line)">${esc(c.titulo)}${c.valor?' · '+brlC(c.valor):''}</div>`).join('')}</section>`:''}
+ <section class="box" style="margin-top:14px"><h3>Suas vendas</h3>${vs.length?`<div class="scroll"><table class="stack"><thead><tr><th>Data</th><th>Empreendimento</th><th class="num">VGV</th><th></th></tr></thead><tbody>${vs.map(v=>`<tr><td>${fd(v.data)}</td><td>${esc(v.emp)} <span class="mute sm">${esc(v.unidade||'')}</span></td><td class="num">${brl(v.vgv)}</td><td>${v.link?`<a href="${esc(v.link)}" target="_blank" rel="noopener">contrato</a>`:''}</td></tr>`).join('')}</tbody></table></div>`:'<p class="empty">Nenhuma venda registrada.</p>'}</section>
+ <section class="box" style="margin-top:14px"><h3>Seus documentos</h3>${S.docs.length?S.docs.map(x=>`<div style="padding:6px 0;border-bottom:1px solid var(--line)">${x.url?`<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.titulo)}</a>`:esc(x.titulo)}${x.nota?`<div class="sm mute">${esc(x.nota)}</div>`:''}</div>`).join(''):'<p class="empty">Nenhum documento.</p>'}</section>
+ </div></div>`}
+
+/* ---------- aba Administração (só o Fernando) ---------- */
+const ADM={users:null,loading:false,last:null};
+async function admCall(body){const {data,error}=await window.sbClient.functions.invoke('admin-usuarios',{body});if(error){let m=error.message;try{const j=await error.context.json();m=j.erro||m}catch(_){}throw new Error(m)}if(data&&data.erro)throw new Error(data.erro);return data}
+async function admLoad(){ADM.loading=true;render();try{ADM.users=(await admCall({acao:'listar'})).usuarios}catch(e){toast('Não carregou os usuários: '+e.message)}ADM.loading=false;render()}
+function linkBox(nome,link){const msg=`Olá, ${nome.split(' ')[0]}! Este é o seu acesso à Central da Gestão da Reserva Imob BC. Abra o link e crie a sua senha (vale por tempo limitado):\n${link}\n\nDepois é só entrar em https://central-gestao-reserva.vercel.app com o seu e-mail e a senha criada.`;
+ openDlg('Link de acesso — '+nome,`<p class="sm">Mande este texto para ${esc(nome)} pelo WhatsApp. O link é pessoal e expira; se vencer, gere outro aqui.</p><textarea id="lkMsg" style="min-height:170px">${esc(msg)}</textarea>`,`<a class="btn" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">Abrir no WhatsApp</a><button class="btn pri" data-act="lkCopy">Copiar mensagem</button><button class="btn" data-act="close">Fechar</button>`)}
+function admUserForm(u){const novo=!u;u=u||{papel:'corretor'};const co=[['','—'],...S.corretores.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(c=>[c.id,c.nome])];
+ form(novo?'Novo usuário':'Editar acesso — '+u.nome,[{k:'nome',l:'Nome'},...(novo?[{k:'email',l:'E-mail',t:'email'}]:[]),{k:'papel',l:'Tipo de acesso',t:'sel',o:[['corretor','Corretor — vê só as informações dele'],['gestor','Gestor — vê tudo, registra negociações e feedbacks']]},{k:'corretor',l:'Corretor vinculado',t:'sel',o:co,hint:'obrigatório para corretor'},...(novo?[{k:'envio',l:'Como entregar o acesso',t:'sel',o:[['link','Gerar link para eu mandar no WhatsApp'],['email','Enviar convite por e-mail (máx. 2 por hora)']],full:1}]:[])],u,async o=>{
+  try{if(novo){const r=await admCall({acao:'criar',nome:o.nome,email:o.email,papel:o.papel,corretor:o.corretor,enviarEmail:o.envio==='email'});close();if(r.link)linkBox(o.nome,r.link);else toast('Convite enviado por e-mail para '+o.email)}
+   else{await admCall({acao:'atualizar',id:u.id,nome:o.nome,papel:o.papel,corretor:o.corretor});close();toast('Acesso atualizado')}
+   if(o.papel==='corretor'&&o.corretor)syncPortal(o.corretor,true);admLoad()}catch(e){toast(e.message)}})}
+function vAdmin(){if(!window.isAdm)return '<p class="empty">Área restrita.</p>';if(!ADM.users&&!ADM.loading)setTimeout(admLoad,0);
+ const us=(ADM.users||[]).slice().sort((a,b)=>(a.papel==='admin'?-1:0)-(b.papel==='admin'?-1:0)||a.nome.localeCompare(b.nome));
+ const pap={admin:'Administrador',gestor:'Gestor (visualiza tudo)',corretor:'Corretor'};
+ const avs=S.avisos.slice().sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+ return `<div class="row sp"><h2 style="font-size:24px">Administração</h2><div class="row"><button class="btn" data-act="admReload">Atualizar</button><button class="btn pri" data-act="admNew">+ Novo usuário</button></div></div>
+ <section class="box"><h3>Usuários e acessos</h3>${ADM.loading&&!ADM.users?'<p class="empty">Carregando…</p>':`<div class="scroll"><table class="stack"><thead><tr><th>Nome</th><th>E-mail</th><th>Acesso</th><th>Corretor</th><th>Situação</th><th>Último acesso</th><th></th></tr></thead><tbody>${us.map(u=>`<tr><td><b>${esc(u.nome)}</b></td><td class="sm">${esc(u.email)}</td><td class="sm">${pap[u.papel]||u.papel}</td><td class="sm">${esc(corNome(u.corretor)||u.corretor||'')}</td><td>${!u.ativo?'<span class="tag late">desativado</span>':u.senhaCriada?'<span class="tag g">ativo</span>':'<span class="tag">aguardando criar senha</span>'}</td><td class="sm">${u.ultimoAcesso?fd(u.ultimoAcesso.slice(0,10)):'—'}</td><td style="white-space:nowrap">${u.papel==='admin'?'':`<button class="btn mini" data-act="admLink" data-id="${u.id}">Gerar link</button> <button class="btn mini" data-act="admEdit" data-id="${u.id}">Editar</button> <button class="btn mini" data-act="admTgl" data-id="${u.id}">${u.ativo?'Desativar':'Reativar'}</button> <button class="btn mini del" data-act="admDel" data-id="${u.id}">Excluir</button>`}</td></tr>`).join('')}</tbody></table></div>`}
+ <p class="sm mute">Corretor: vê só os clientes, vendas, documentos marcados para ele, atividades, avisos, combinados e o feedback que você liberar. Gestor: vê tudo e registra negociações e feedbacks dos corretores. "Gerar link" serve para o primeiro acesso e para quem esqueceu a senha.</p></section>
+ <section class="box" style="margin-top:14px"><div class="row sp"><h3>Avisos para os corretores</h3><button class="btn mini pri" data-act="avNew">+ Aviso</button></div>${avs.length?avs.map(a=>`<div style="padding:8px 0;border-bottom:1px solid var(--line)"><div class="row sp"><b>${esc(a.titulo)}</b><span class="sm mute">${fd(a.data)} · ${a.corretor?esc(corNome(a.corretor)):'todo o time'}${a.validade?' · até '+fd(a.validade):''} <button class="btn mini del" data-act="avDel" data-id="${a.id}">Excluir</button></span></div><div class="sm" style="white-space:pre-wrap">${esc(a.texto||'')}</div></div>`).join(''):'<p class="empty">Nenhum aviso publicado.</p>'}</section>
+ <section class="box" style="margin-top:14px"><h3>Portais dos corretores</h3><p class="sm">O portal de cada corretor mostra o plano de ação, combinados dos 1:1, pontos fortes, a desenvolver e o feedback. Atualiza sozinho quando você edita o corretor ou um 1:1; suas notas de inteligência comercial, o perfil e as transcrições nunca vão para o portal.</p><button class="btn" data-act="admSyncAll">Atualizar o portal de todos agora</button></section>`}
+function avForm(a){a=a||{data:today(),corretor:''};form(a.id?'Editar aviso':'Novo aviso',[{k:'titulo',l:'Título',full:1},{k:'texto',l:'Mensagem',t:'area'},{k:'corretor',l:'Para',t:'sel',o:[['','Todo o time'],...S.corretores.slice().sort((x,y)=>x.nome.localeCompare(y.nome)).map(c=>[c.id,c.nome])]},{k:'validade',l:'Mostrar até',t:'date',hint:'opcional'}],a,async o=>{if(!o.titulo)return toast('Dê um título ao aviso');await save('avisos',{...a,...o});close()})}
+function atvForm(t){t=t||{status:'aberta',prazo:today()};form(t.id?'Editar atividade':'Nova atividade para o corretor',[{k:'titulo',l:'Atividade',full:1},{k:'corretor',l:'Corretor',t:'sel',o:S.corretores.slice().sort((x,y)=>x.nome.localeCompare(y.nome)).map(c=>[c.id,c.nome])},{k:'prazo',l:'Prazo',t:'date'},{k:'status',l:'Status',t:'sel',o:[['aberta','Em aberto'],['feita','Feita']]},{k:'notas',l:'Detalhes',t:'area'}],t,async o=>{if(!o.titulo||!o.corretor)return toast('Informe a atividade e o corretor');await save('atividades',{...t,...o,criado:t.criado||today()});close()},t.id?`<button class="btn del" data-act="delX" data-c="atividades" data-id="${t.id}" style="margin-right:auto">Excluir</button>`:'')}
+
+/* ---------- feedbacks e observações da liderança (Fernando, Luiz e Alan) ---------- */
+const OBS_T=['Feedback','Observação','Atitude','Relacionamento','Sugestão','Reclamação','Elogio'];
+function obsBox(c){const os=S.observacoes.filter(o=>o.corretor===c.id).sort((a,b)=>(b.data||'').localeCompare(a.data||''));const me=window.centralState&&window.centralState.user&&window.centralState.user.id;
+ return `<section class="box" style="margin-top:14px"><div class="row sp"><h3>Feedbacks e observações da liderança</h3><button class="btn mini pri" data-act="obsNew" data-c="${c.id}">+ Registrar</button></div>${os.length?`<div class="tl">${os.map(o=>`<div><div class="row sp"><b class="sm">${fd(o.data)} · ${esc(o.tipo||'Observação')} · ${esc(o.autor||'')}</b>${window.isAdm||o._owner===me?`<button class="btn mini del" data-act="obsDel" data-id="${o.id}" aria-label="Excluir">✕</button>`:''}</div><div style="white-space:pre-wrap">${esc(o.texto)}</div></div>`).join('')}</div>`:'<p class="empty">Nenhum registro. Fernando, Luiz e Alan podem registrar aqui feedbacks, atitudes, relacionamento, sugestões e reclamações.</p>'}<p class="sm mute">Só a liderança vê esta área; o corretor não tem acesso.</p></section>`}
+function atvBox(c){const as=S.atividades.filter(a=>a.corretor===c.id).sort((a,b)=>(a.status==='feita')-(b.status==='feita')||(a.prazo||'9').localeCompare(b.prazo||'9'));const d=today();
+ return `<section class="box" style="margin-top:14px"><div class="row sp"><h3>Atividades e avisos para o corretor</h3><div class="row"><button class="btn mini" data-act="avNewC" data-c="${c.id}">+ Aviso</button><button class="btn mini pri" data-act="atvNew" data-c="${c.id}">+ Atividade</button></div></div>${as.length?as.slice(0,20).map(a=>`<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line);gap:8px"><input type="checkbox" data-act="atvTgl" data-id="${a.id}" ${a.status==='feita'?'checked':''} style="width:18px;height:18px;flex:none;accent-color:var(--green)" aria-label="Concluir"><span class="card" data-act="atvEdit" data-id="${a.id}" style="flex:1;padding:4px 8px;margin:0;${a.status==='feita'?'text-decoration:line-through;color:var(--mute)':''}">${esc(a.titulo)}${a.prazo?` <span class="tag ${a.prazo<d&&a.status!=='feita'?'late':''}">${fd(a.prazo)}</span>`:''}</span></div>`).join(''):'<p class="empty">Nenhuma atividade. O que você lançar aqui aparece no acesso do corretor.</p>'}</section>`}
+
+/* ---------- negociações e propostas (funil em kanban) ---------- */
+const NEG_DEF=[{id:'neg',nome:'Em negociação'},{id:'prop',nome:'Proposta'},{id:'contr',nome:'Contrato'}];
+const negF={cor:'',enc:false};let negEt=null;
+const etapasNeg=()=>{const f=S.negfunil.find(x=>x.id==='etapas');return f&&Array.isArray(f.etapas)&&f.etapas.length?f.etapas:NEG_DEF};
+const negById=id=>S.negociacoes.find(n=>n.id===id);
+function negCard(n){const ul=(n.notas||[]).slice(-1)[0],pend=(n.notas||[]).some(x=>x.status==='transcrito'),dd=ddias(n.upd||n.criado);const et=etapasNeg(),i=et.findIndex(e=>e.id===n.etapa);
+ return `<div class="card negc" draggable="true" data-neg="${n.id}" data-act="negOpen" data-id="${n.id}" style="margin:0 0 8px"><b>${esc(n.titulo)}</b><div class="sm">${esc(corNome(n.corretor)||'—')}${+n.valor?' · '+brlC(n.valor):''}</div>${n.cliente||n.emp?`<div class="sm mute">${esc([n.cliente,n.emp].filter(Boolean).join(' · '))}</div>`:''}${n.proximo?`<div class="sm" style="margin-top:4px">➜ ${esc(n.proximo)}${n.prazo?` <span class="tag ${n.prazo<today()?'late':''}">${fd(n.prazo)}</span>`:''}</div>`:''}${pend?'<div class="sm" style="color:var(--amber,#C98A00)">Áudio transcrito aguardando organização</div>':ul?`<div class="sm mute" style="margin-top:4px">${esc((ul.resumo||ul.texto||ul.transcricao||'').slice(0,90))}</div>`:''}<div class="row sp sm mute" style="margin-top:6px"><span>${dd===null?'':dd===0?'atualizada hoje':'há '+dd+' dia'+(dd===1?'':'s')}</span><span><button class="btn mini" data-act="negMove" data-id="${n.id}" data-dir="-1" ${i<=0?'disabled':''} aria-label="Etapa anterior">‹</button> <button class="btn mini" data-act="negMove" data-id="${n.id}" data-dir="1" ${i>=et.length-1?'disabled':''} aria-label="Próxima etapa">›</button></span></div></div>`}
+function vNeg(){if(papel()==='corretor')return '';const et=etapasNeg();let ns=S.negociacoes.slice();if(negF.cor)ns=ns.filter(n=>n.corretor===negF.cor);
+ const ab=ns.filter(n=>!n.status||n.status==='aberta'),enc=ns.filter(n=>n.status&&n.status!=='aberta').sort((a,b)=>(b.encerrada||'').localeCompare(a.encerrada||''));
+ const tot=ab.reduce((s,n)=>s+(+n.valor||0),0);
+ const cors=[...new Set(S.negociacoes.map(n=>n.corretor).filter(Boolean))];
+ return `<div class="row sp"><h2 style="font-size:24px">Negociações e propostas</h2><div class="row"><select id="negCor" style="width:auto"><option value="">Todos os corretores</option>${cors.map(c=>`<option value="${esc(c)}" ${negF.cor===c?'selected':''}>${esc(corNome(c)||c)}</option>`).join('')}</select><button class="btn" data-act="negEtapas">Etapas do funil</button><button class="btn pri" data-act="negNew">+ Negociação</button></div></div>
+ <div class="kpis"><div class="kpi"><b>${ab.length}</b><span>negociações abertas</span></div><div class="kpi"><b>${brlC(tot)}</b><span>em valor no funil</span></div><div class="kpi"><b>${enc.filter(n=>n.status==='ganha').length}</b><span>ganhas</span></div><div class="kpi"><b>${enc.filter(n=>n.status==='perdida').length}</b><span>perdidas</span></div></div>
+ <div class="kanban" style="display:grid;grid-auto-flow:column;grid-auto-columns:minmax(260px,1fr);gap:12px;overflow-x:auto;padding-bottom:6px">${et.map(e=>{const col=ab.filter(n=>(et.some(x=>x.id===n.etapa)?n.etapa:et[0].id)===e.id).sort((a,b)=>(b.upd||'').localeCompare(a.upd||''));return `<section class="box negcol" data-etapa="${e.id}" style="min-height:220px"><div class="row sp"><h3 style="margin:0">${esc(e.nome)}</h3><span class="sm mute">${col.length} · ${brlC(col.reduce((s,n)=>s+(+n.valor||0),0))}</span></div><div style="margin-top:10px">${col.map(negCard).join('')||'<p class="empty sm">Arraste uma negociação para cá.</p>'}</div></section>`}).join('')}</div>
+ <div class="row sp" style="margin-top:16px"><h3 class="section-t" style="margin:0">Encerradas (${enc.length})</h3><button class="btn mini" data-act="negEncTgl">${negF.enc?'Ocultar':'Mostrar'}</button></div>
+ ${negF.enc?(enc.length?enc.map(n=>`<div class="card" data-act="negOpen" data-id="${n.id}"><div class="row sp"><b>${esc(n.titulo)}</b><span class="tag ${n.status==='ganha'?'g':'late'}">${n.status==='ganha'?'ganha':'perdida'} · ${fd(n.encerrada)}</span></div><div class="sm">${esc(corNome(n.corretor)||'—')}${+n.valor?' · '+brlC(n.valor):''}${n.motivo?' · '+esc(n.motivo):''}</div></div>`).join(''):'<p class="empty">Nenhuma encerrada.</p>'):''}`}
+function negForm(n){const novo=!n||!n.id;n=n||{etapa:etapasNeg()[0].id,status:'aberta'};const co=[['','—'],...S.corretores.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(c=>[c.id,c.nome])];
+ formG(novo?'Nova negociação':'Editar negociação',[{k:'titulo',l:'Título da negociação',full:1},{k:'corretor',l:'Corretor',t:'sel',o:co},{k:'etapa',l:'Etapa',t:'sel',o:etapasNeg().map(e=>[e.id,e.nome])},{k:'cliente',l:'Cliente (só o nome)'},{k:'emp',l:'Empreendimento / imóvel'},{k:'valor',l:'Valor da negociação (R$)',t:'number'},{k:'prazo',l:'Prazo do próximo passo',t:'date'},{k:'proximo',l:'Próximo passo',full:1},...(novo?[{k:'situacao',l:'O que está acontecendo',t:'area'}]:[])],n,async o=>{if(!o.titulo)return toast('Dê um título à negociação');const sit=o.situacao;delete o.situacao;
+  const d={...n,...o};if(novo){d.criado=today();d.criadoPor=meuNome();d.status='aberta';d.notas=sit?[{id:uid(),d:new Date().toISOString(),autor:meuNome(),tipo:'texto',texto:sit}]:[]}
+  const id=await save('negociacoes',d);close();if(novo&&id)setTimeout(()=>negOpen(id),400)})}
+function negOpen(id){const n=negById(id);if(!n)return;const et=etapasNeg();const etN=(et.find(e=>e.id===n.etapa)||et[0]).nome;
+ const notas=(n.notas||[]).slice().reverse();
+ openDlg(n.titulo,`<div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:8px"><span class="tag ${n.status==='ganha'?'g':n.status==='perdida'?'late':''}">${n.status&&n.status!=='aberta'?(n.status==='ganha'?'Ganha':'Perdida')+' em '+fd(n.encerrada):esc(etN)}</span><span class="sm">${esc(corNome(n.corretor)||'Sem corretor')}</span>${+n.valor?`<span class="sm">· ${brl(n.valor)}</span>`:''}${n.cliente?`<span class="sm">· ${esc(n.cliente)}</span>`:''}${n.emp?`<span class="sm">· ${esc(n.emp)}</span>`:''}</div>
+ ${n.resumo?`<section class="box" style="margin:0 0 10px"><h3 class="section-t" style="margin-top:0">Situação atual (organizada pelo Claude)</h3><div style="white-space:pre-wrap">${esc(n.resumo)}</div></section>`:''}
+ ${n.proximo?`<p><b>Próximo passo:</b> ${esc(n.proximo)}${n.prazo?` · <span class="tag ${n.prazo<today()?'late':''}">${fd(n.prazo)}</span>`:''}</p>`:''}${n.motivo?`<p class="sm"><b>Motivo do encerramento:</b> ${esc(n.motivo)}</p>`:''}
+ <label for="negTxt">Registrar o que está acontecendo</label><textarea id="negTxt" placeholder="Feedback, contraproposta, objeção, próximo passo…" style="min-height:80px"></textarea>
+ <div class="row" style="margin:8px 0;justify-content:flex-end"><button class="btn" data-act="negRec" data-id="${n.id}">● Gravar áudio</button><button class="btn pri" data-act="negNote" data-id="${n.id}">Adicionar registro</button></div>
+ <div id="negRecBox"></div>
+ <h3 class="section-t">Histórico (${notas.length})</h3>${notas.length?`<div class="tl">${notas.map(x=>`<div><b class="sm">${fd((x.d||'').slice(0,10))} · ${esc(x.autor||'')}${x.tipo==='audio'?' · áudio':''}${x.status==='transcrito'?' · <span style="color:var(--amber,#C98A00)">aguardando organização</span>':''}</b>${x.resumo?`<div style="white-space:pre-wrap">${esc(x.resumo)}</div>`:''}${x.texto?`<div style="white-space:pre-wrap">${esc(x.texto)}</div>`:''}${x.transcricao?`<details${x.resumo?'':' open'}><summary class="sm mute">Transcrição</summary><div class="sm" style="white-space:pre-wrap">${esc(x.transcricao)}</div></details>`:''}</div>`).join('')}</div>`:'<p class="empty">Nenhum registro ainda.</p>'}`,
+ `${n.status&&n.status!=='aberta'?`<button class="btn" data-act="negReab" data-id="${n.id}">Reabrir</button>`:`<button class="btn" data-act="negEnc" data-id="${n.id}" data-r="ganha">Encerrar: ganha</button><button class="btn" data-act="negEnc" data-id="${n.id}" data-r="perdida">Encerrar: perdida</button>`}<button class="btn del" data-act="negDel" data-id="${n.id}" style="margin-right:auto">Excluir</button><button class="btn" data-act="negEdit" data-id="${n.id}">Editar dados</button><button class="btn" data-act="close">Fechar</button>`)}
+async function negPush(id,nota,extra){const n=negById(id);if(!n)return;await save('negociacoes',{...n,...(extra||{}),notas:[...(n.notas||[]),{id:uid(),d:new Date().toISOString(),autor:meuNome(),...nota}]})}
+/* gravação + transcrição da negociação (Chrome) */
+const NREC={on:false};
+function nrecPaint(){const b=$('#negRecBox');if(!b)return;if(!NREC.on){b.innerHTML='';return}b.innerHTML=`<section class="box" style="margin:0 0 10px;border-color:var(--red,#C0392B)"><div class="row sp"><b style="color:var(--red,#C0392B)">● Gravando · ${Math.floor((Date.now()-NREC.t0)/60000)} min</b><button class="btn pri mini" data-act="negRecStop" data-id="${NREC.id}">Parar e salvar</button></div><div class="sm" style="white-space:pre-wrap;max-height:160px;overflow:auto;margin-top:6px">${esc(NREC.txt)}<i class="mute">${esc(NREC.par)}</i></div>${NREC.msg?`<div class="sm mute">${esc(NREC.msg)}</div>`:''}</section>`}
+function negRec(id){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR)return toast('Use o Google Chrome para gravar e transcrever.');if(NREC.on||REC.on)return toast('Já existe uma gravação em andamento.');
+ Object.assign(NREC,{on:true,id,txt:'',par:'',msg:'',t0:Date.now()});const r=new SR();r.lang='pt-BR';r.continuous=true;r.interimResults=true;NREC.sr=r;
+ r.onresult=e=>{let p='';for(let i=e.resultIndex;i<e.results.length;i++){const t=e.results[i][0].transcript;if(e.results[i].isFinal)NREC.txt+=t.trim()+' ';else p+=t}NREC.par=p;nrecPaint()};
+ r.onerror=e=>{if(e.error==='not-allowed'||e.error==='service-not-allowed'){NREC.msg='Microfone bloqueado: clique no cadeado da barra de endereço e permita o microfone.';nrecPaint()}};
+ r.onend=()=>{if(NREC.on&&NREC.sr===r)setTimeout(()=>{try{r.start()}catch(_){}},250)};
+ try{r.start()}catch(_){}NREC.tick=setInterval(nrecPaint,15000);nrecPaint()}
+async function negRecStop(){if(!NREC.on)return;const r=NREC.sr;NREC.sr=null;NREC.on=false;clearInterval(NREC.tick);try{r&&r.stop()}catch(_){}
+ const txt=(NREC.txt+' '+(NREC.par||'')).trim();nrecPaint();if(!txt)return toast('Nada foi captado. Confira o microfone.');
+ await negPush(NREC.id,{tipo:'audio',transcricao:txt,status:'transcrito'});toast('Áudio transcrito e salvo. O Claude organiza as informações.');setTimeout(()=>negOpen(NREC.id),500)}
+function negEtapas(){negEt=etapasNeg().map(e=>({...e}));etPaint()}
+function etPaint(){openDlg('Etapas do funil de negociações',`<p class="sm">Renomeie, reordene, crie ou exclua etapas. Negociações de uma etapa excluída vão para a primeira etapa.</p>${negEt.map((e,i)=>`<div class="row" style="gap:6px;margin:6px 0"><input data-et="${i}" value="${esc(e.nome)}" aria-label="Nome da etapa"><button class="btn mini" data-act="etUp" data-i="${i}" ${i===0?'disabled':''} aria-label="Subir">↑</button><button class="btn mini" data-act="etDown" data-i="${i}" ${i===negEt.length-1?'disabled':''} aria-label="Descer">↓</button><button class="btn mini del" data-act="etRm" data-i="${i}" ${negEt.length<2?'disabled':''} aria-label="Excluir etapa">✕</button></div>`).join('')}<button class="btn mini" data-act="etAdd">+ Etapa</button>`,`<button class="btn" data-act="close">Cancelar</button><button class="btn pri" data-act="etSave">Salvar etapas</button>`)}
+function etRead(){document.querySelectorAll('#dlgB [data-et]').forEach(inp=>{const e=negEt[+inp.dataset.et];if(e)e.nome=inp.value})}
+async function negHandle(A,el,id){
+ if(A==='negNew')return negForm();if(A==='negOpen')return negOpen(id);if(A==='negEdit'){const n=negById(id);return n&&negForm(n)}
+ if(A==='negEncTgl'){negF.enc=!negF.enc;return render()}
+ if(A==='negMove'){const n=negById(id),et=etapasNeg();if(!n)return;const i=Math.max(0,et.findIndex(e=>e.id===n.etapa))+(+el.dataset.dir);if(i<0||i>=et.length)return;return save('negociacoes',{...n,etapa:et[i].id,hist:[...(n.hist||[]),{d:today(),de:n.etapa,para:et[i].id,por:meuNome()}]})}
+ if(A==='negNote'){const t=($('#negTxt')||{}).value||'';if(!t.trim())return toast('Escreva o registro ou grave um áudio');await negPush(id,{tipo:'texto',texto:t.trim()});return setTimeout(()=>negOpen(id),400)}
+ if(A==='negRec')return negRec(id);if(A==='negRecStop')return negRecStop();
+ if(A==='negEnc'){const r=el.dataset.r,m=prompt(r==='ganha'?'Encerrar como ganha. Algum detalhe? (opcional)':'Encerrar como perdida. Qual o motivo?');if(m===null)return;const n=negById(id);await save('negociacoes',{...n,status:r,encerrada:today(),motivo:m.trim(),encPor:meuNome()});close();return}
+ if(A==='negReab'){const n=negById(id);await save('negociacoes',{...n,status:'aberta',encerrada:'',motivo:''});return setTimeout(()=>negOpen(id),400)}
+ if(A==='negDel'){if(!confirm('Excluir esta negociação e todo o histórico?'))return;await del('negociacoes',id);return close()}
+ if(A==='negEtapas')return negEtapas();
+ if(A==='etAdd'){etRead();negEt.push({id:'e'+uid(),nome:'Nova etapa'});return etPaint()}
+ if(A==='etUp'||A==='etDown'){etRead();const i=+el.dataset.i,j=A==='etUp'?i-1:i+1;[negEt[i],negEt[j]]=[negEt[j],negEt[i]];return etPaint()}
+ if(A==='etRm'){etRead();negEt.splice(+el.dataset.i,1);return etPaint()}
+ if(A==='etSave'){etRead();const et=negEt.map(e=>({id:e.id,nome:(e.nome||'').trim()||'Etapa'}));await save('negfunil',{id:'etapas',etapas:et});
+  const ids=new Set(et.map(e=>e.id));for(const n of S.negociacoes.filter(n=>(!n.status||n.status==='aberta')&&n.etapa&&!ids.has(n.etapa)))await save('negociacoes',{...n,etapa:et[0].id});return close()}
+ if(A==='obsNew'){const c=el.dataset.c;return formG('Registrar sobre '+corNome(c),[{k:'tipo',l:'Tipo',t:'sel',o:OBS_T},{k:'data',l:'Data',t:'date'},{k:'texto',l:'O que aconteceu',t:'area',h:120}],{tipo:'Feedback',data:today()},async o=>{if(!o.texto)return toast('Escreva o registro');await save('observacoes',{...o,corretor:c,autor:meuNome()});close()})}
+ if(A==='obsDel'){if(!confirm('Excluir este registro?'))return;return del('observacoes',id)}
+}
+/* arrastar e soltar no kanban */
+document.addEventListener('dragstart',e=>{const c=e.target.closest&&e.target.closest('.negc');if(c){e.dataTransfer.setData('text/plain',c.dataset.neg);e.dataTransfer.effectAllowed='move'}});
+document.addEventListener('dragover',e=>{if(e.target.closest&&e.target.closest('.negcol'))e.preventDefault()});
+document.addEventListener('drop',async e=>{const col=e.target.closest&&e.target.closest('.negcol');if(!col)return;e.preventDefault();const id=e.dataTransfer.getData('text/plain'),n=negById(id);if(!n||n.etapa===col.dataset.etapa)return;if(!window.isAdm&&papel()!=='gestor')return;await save('negociacoes',{...n,etapa:col.dataset.etapa,hist:[...(n.hist||[]),{d:today(),de:n.etapa,para:col.dataset.etapa,por:meuNome()}]})});
+document.addEventListener('change',e=>{if(e.target.id==='negCor'){negF.cor=e.target.value;render()}});
+
 function vHoje(){const d=today(),op=openTasks(),late=op.filter(t=>t.prazo&&t.prazo<d),doneT=S.tarefas.filter(t=>t.feito===d).length;
  const m=d.slice(0,7),oo=S.reunioes.filter(r=>r.tipo==='1:1'&&(r.data||'').startsWith(m)).length,mr=mesRow(m);
  const foco=op.filter(t=>!t.prazo||t.prazo<=d).sort((a,b)=>(a.prio||'B').localeCompare(b.prio||'B')||(a.prazo||'9').localeCompare(b.prazo||'9'));
@@ -590,7 +741,7 @@ function vCor(c){const rs=S.reunioes.filter(r=>r.corretor===c.id).sort((a,b)=>(b
  </div><div>
  <section class="box"><div class="row sp"><h3>Inteligência comercial — notas</h3></div><div class="row" style="margin:8px 0"><input id="notaTxt" placeholder="O que você identificou hoje?" data-cid="${c.id}"><button class="btn mini pri" data-act="addNota" data-id="${c.id}">Adicionar</button></div>
  ${(c.notas||[]).length?`<div class="tl">${c.notas.slice().sort((a,b)=>(b.d||'').localeCompare(a.d||'')).map(n=>`<div><b class="sm">${fd(n.d)}</b><div>${esc(n.t)}</div></div>`).join('')}</div>`:'<p class="empty">Registre aqui o que observar no dia a dia.</p>'}</section>
- <section class="box" style="margin-top:14px"><div class="row sp"><h3>Reuniões</h3><button class="btn mini" data-act="newR" data-c="${c.id}">+ 1:1</button></div>${rs.length?rs.map(r=>`<div class="card" data-act="editR" data-id="${r.id}"><div class="row sp"><b>${fd(r.data)} · ${esc(r.tipo)}</b>${r.link?`<a class="sm" href="${esc(r.link)}" target="_blank" rel="noopener" data-act="nop">ata</a>`:''}</div><div class="sm">${esc(r.titulo)}</div>${r.status==='transcrito'||r.status==='gravando'?`<div class="sm" style="color:var(--amber,#C98A00)">${r.status==='gravando'?'Gravação interrompida, transcrição parcial salva':'Transcrição pronta, aguardando organização'}</div>`:''}<div class="sm mute">${esc((r.resumo||'').slice(0,180))}</div></div>`).join(''):'<p class="empty">Nenhuma reunião.</p>'}</section>
+ ${atvBox(c)}${obsBox(c)}<section class="box" style="margin-top:14px"><div class="row sp"><h3>Reuniões</h3><button class="btn mini" data-act="newR" data-c="${c.id}">+ 1:1</button></div>${rs.length?rs.map(r=>`<div class="card" data-act="editR" data-id="${r.id}"><div class="row sp"><b>${fd(r.data)} · ${esc(r.tipo)}</b>${r.link?`<a class="sm" href="${esc(r.link)}" target="_blank" rel="noopener" data-act="nop">ata</a>`:''}</div><div class="sm">${esc(r.titulo)}</div>${r.status==='transcrito'||r.status==='gravando'?`<div class="sm" style="color:var(--amber,#C98A00)">${r.status==='gravando'?'Gravação interrompida, transcrição parcial salva':'Transcrição pronta, aguardando organização'}</div>`:''}<div class="sm mute">${esc((r.resumo||'').slice(0,180))}</div></div>`).join(''):'<p class="empty">Nenhuma reunião.</p>'}</section>
  <section class="box" style="margin-top:14px"><div class="row sp"><h3>Tarefas ligadas</h3><button class="btn mini" data-act="newT" data-c="${c.id}">+ Tarefa</button></div>${ts.map(taskRow).join('')||'<p class="empty">Nenhuma aberta.</p>'}</section>
  </div></div>`}
 
@@ -607,7 +758,7 @@ function vEmpresa(){const c=cfg(),sec=c.empresa||[],dc=S.docs.filter(x=>x.cat!==
 
 /* ---------- formulário genérico ---------- */
 let onSave=null;
-function form(title,fields,vals,cb,extra){$('#dlgT').textContent=title;
+function form(title,fields,vals,cb,extra){FORM_G=false;$('#dlg').classList.remove('gok');$('#dlgT').textContent=title;
  $('#dlgB').innerHTML=`<div class="f2">${fields.map(f=>{const v=vals[f.k]??'';const full=f.full||f.t==='area'||f.t==='lines'||f.t==='rows';const id='ff_'+f.k;let h;
   if(f.t==='area'||f.t==='lines')h=`<textarea id="${id}" style="min-height:${f.h||90}px">${esc(f.t==='lines'?(v||[]).map(x=>typeof x==='string'?x:(x.done?'[x] ':'')+x.t).join('\n'):v)}</textarea>`;
   else if(f.t==='sel')h=`<select id="${id}">${f.o.map(o=>{const[val,lab]=Array.isArray(o)?o:[o,o];return `<option value="${esc(val)}" ${String(v)===String(val)?'selected':''}>${esc(lab)}</option>`}).join('')}</select>`;
@@ -631,7 +782,7 @@ function meetForm(r){r=r||{data:today(),tipo:'1:1'};
  `${r.id?`<button class="btn del" data-act="delX" data-c="reunioes" data-id="${r.id}">Excluir</button><button class="btn" data-act="rep" data-k="ata" data-a="${r.id}">PDF / Drive</button>`:''}<label style="margin:0 auto 0 4px;display:flex;gap:6px;align-items:center"><input type="checkbox" id="mkTasks" style="width:18px;height:18px"> criar tarefas dos encaminhamentos</label>`)}
 function corForm(c){c=c||{status:'Ativo'};
  form(c.id?'Editar corretor':'Novo corretor',[{k:'nome',l:'Nome'},{k:'status',l:'Status',t:'sel',o:['Ativo','Novo','Pausado','Inativo']},{k:'entrada',l:'Entrou no time',t:'date'},{k:'pasta',l:'Pasta no Drive (link)'},{k:'perfil',l:'Perfil e contexto',t:'area',h:110},{k:'fortes',l:'Pontos fortes',t:'lines',hint:'um por linha'},{k:'desenvolver',l:'Pontos a desenvolver',t:'lines',hint:'um por linha'},{k:'acoes',l:'Plano de ação e combinados',t:'lines',chk:1,hint:'um por linha; [x] no início = concluído',h:130},{k:'feedback',l:'Feedback para o próximo 1:1',t:'area'}],c,async o=>{if(!o.nome)return toast('Informe o nome');const id=c.id||o.nome.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');await save('corretores',{...c,...o,id});close()},c.id?`<button class="btn del" data-act="delX" data-c="corretores" data-id="${c.id}" style="margin-right:auto">Excluir</button>`:'')}
-function docForm(d){d=d||{};form(d.id?'Editar documento':'Novo documento',[{k:'titulo',l:'Título',full:1},{k:'cat',l:'Categoria',t:'sel',o:['Contrato','KPIs e OPS','Processos','Treinamento','Corretores','Marketing','Outro']},{k:'url',l:'Link'},{k:'nota',l:'Nota',t:'area'}],d,async o=>{await save('docs',{...d,...o});close()},d.id?`<button class="btn del" data-act="delX" data-c="docs" data-id="${d.id}" style="margin-right:auto">Excluir</button>`:'')}
+function docForm(d){d=d||{};form(d.id?'Editar documento':'Novo documento',[{k:'titulo',l:'Título',full:1},{k:'cat',l:'Categoria',t:'sel',o:['Contrato','KPIs e OPS','Processos','Treinamento','Corretores','Marketing','Outro']},{k:'url',l:'Link'},{k:'corretor',l:'Corretor relacionado',t:'sel',o:[['','— (só a liderança vê)'],...S.corretores.slice().sort((a,b)=>a.nome.localeCompare(b.nome)).map(c=>[c.id,c.nome])],hint:'o corretor passa a ver este documento'},{k:'nota',l:'Nota',t:'area'}],d,async o=>{await save('docs',{...d,...o});close()},d.id?`<button class="btn del" data-act="delX" data-c="docs" data-id="${d.id}" style="margin-right:auto">Excluir</button>`:'')}
 
 /* ---------- PDF ---------- */
 const clean=s=>String(s??'').replace(/[—–]/g,'-').replace(/[“”]/g,'"').replace(/[‘’]/g,"'").replace(/[•●]/g,'-').replace(/…/g,'...').replace(/✓/g,'OK').replace(/[^\x00-\xFF]/g,'');
@@ -690,7 +841,20 @@ async function toDrive(){const st=$('#repSt');const mcp=await capUse('mcp');if(!
 /* ---------- eventos ---------- */
 document.addEventListener('click',async ev=>{const el=ev.target.closest('[data-act]');if(!el)return;const A=el.dataset.act,id=el.dataset.id;
  if(A==='logout')return centralAuth.logout();
- if(!window.isAdm&&!RO_OK.has(A)){ev.preventDefault();return toast('Seu acesso é somente para visualização.')}
+ if(!window.isAdm&&!RO_OK.has(A)&&!(papel()==='gestor'&&(G_OK.has(A)||(A==='fsave'&&FORM_G)))){ev.preventDefault();return toast('Seu acesso é somente para visualização.')}
+ if(G_OK.has(A)&&A!=='addRow'&&A!=='rmRow'){ev.preventDefault();return negHandle(A,el,id)}
+ if(A==='lkCopy'){const m=$('#lkMsg').value;try{await navigator.clipboard.writeText(m);toast('Mensagem copiada')}catch(e){$('#lkMsg').select();toast('Selecione e copie')}return}
+ if(A==='admReload')return admLoad();if(A==='admNew')return admUserForm();
+ if(A==='admEdit'){const u=(ADM.users||[]).find(x=>x.id===id);return u&&admUserForm(u)}
+ if(A==='admLink'){const u=(ADM.users||[]).find(x=>x.id===id);try{const r=await admCall({acao:'link',id});linkBox(u?u.nome:'',r.link)}catch(e){toast(e.message)}return}
+ if(A==='admTgl'){const u=(ADM.users||[]).find(x=>x.id===id);if(!u)return;if(!confirm((u.ativo?'Desativar':'Reativar')+' o acesso de '+u.nome+'?'))return;try{await admCall({acao:'atualizar',id,ativo:!u.ativo});admLoad()}catch(e){toast(e.message)}return}
+ if(A==='admDel'){const u=(ADM.users||[]).find(x=>x.id===id);if(!u||!confirm('Excluir de vez o acesso de '+u.nome+'? Os registros do sistema continuam.'))return;try{await admCall({acao:'excluir',id});admLoad()}catch(e){toast(e.message)}return}
+ if(A==='admSyncAll'){S.corretores.forEach(c=>syncPortal(c.id,true));return toast('Portais atualizados')}
+ if(A==='avNew')return avForm();if(A==='avNewC')return avForm({data:today(),corretor:el.dataset.c});
+ if(A==='avDel'){if(!confirm('Excluir este aviso?'))return;return del('avisos',id)}
+ if(A==='atvNew')return atvForm({status:'aberta',prazo:today(),corretor:el.dataset.c});
+ if(A==='atvEdit'){const t=S.atividades.find(x=>x.id===id);return t&&atvForm(t)}
+ if(A==='atvTgl'){const t=S.atividades.find(x=>x.id===id);if(t)await save('atividades',{...t,status:t.status==='feita'?'aberta':'feita',feita:t.status==='feita'?'':today()});return}
  if(A==='rec1a1')return recStart(id);if(A==='recPause')return recPause();if(A==='recStop')return recStop();if(A==='recClose'){REC.on=false;const b=document.getElementById('recBox');if(b)b.remove();return}
  if(A==='recOpen'){const b=document.getElementById('recBox');if(b)b.remove();const r=S.reunioes.find(x=>x.id===el.dataset.id);return r&&meetForm(r)}
  if(A==='imp'){if(!window.isAdm)return toast('Só o administrador importa backup');const inp=document.createElement('input');inp.type='file';inp.accept='.json';inp.onchange=async()=>{try{const j=JSON.parse(await inp.files[0].text());let n=0;for(const c of COLS){let arr=Array.isArray(j[c])?j[c]:[];if(c==='docs')arr=arr.filter(x=>(x.data||x).cat!=='Comissões');if(arr.length){n+=await centralImport(c,arr)}}toast(n+' registros importados')}catch(e){toast('Falhou: '+(e.message||e))}};inp.click();return}
@@ -756,10 +920,14 @@ document.addEventListener('click',async ev=>{const el=ev.target.closest('[data-a
 document.addEventListener('input',ev=>{if(ev.target.id==='cfq'){cf.q=ev.target.value;render();return}if(ev.target.id==='ldExtra'&&LD){LD.extra=ev.target.value;liderSync();return}if(['dResumo','dReal','dSit','dFb','dProx','fbNext','notaTxt','qT','qN','qC','qK','vTxt','notaMes'].includes(ev.target.id))drafts[ev.target.id]=ev.target.value;const f=ev.target.dataset.f;if(f){filt[f]=ev.target.value;render()}});
 document.addEventListener('change',ev=>{const t=ev.target;if(t.id==='ldPer'&&LD){return liderDlg(LD.d,t.value)}if(t.id==='cobCor'){cobCor=t.value;return render()}if(t.dataset.cf&&t.id!=='cfq'){cf[t.dataset.cf]=t.value;return render()}if(LD&&t.dataset.ld){LD.sel[t.dataset.ld]=t.checked;return liderSync()}if(t.id==='ldPara'){LD.para=t.value;return liderSync()}if(t.id==='ldDet'){LD.det=t.checked;return liderSync()}if(t.id==='vAno'){vAno=t.value;vSel='';render()}if(t.id==='tDia'){tDia=t.value;render()}if(t.id==='rtipo'){rtipo=t.value;render()}if(t.id==='diaSel'){['dResumo','dReal','dSit','dFb','dProx'].forEach(k=>delete drafts[k]);sel={dia:t.value};render()}if(t.dataset.f&&t.tagName==='SELECT'){filt[t.dataset.f]=t.value;render()}});
 document.addEventListener('keydown',ev=>{if(ev.key==='Enter'&&ev.target.id==='notaTxt'){ev.preventDefault();document.querySelector('[data-act=addNota]').click()}});
-function route(){const h=location.hash.slice(1);view=['hoje','cobrancas','tarefas','diario','corretores','reunioes','crm','vendas','empresa'].includes(h)?h:'hoje';if(view!=='corretores'&&view!=='diario')sel=null;render()}
+function route(){const h=location.hash.slice(1);view=['hoje','cobrancas','tarefas','diario','corretores','reunioes','negociacoes','crm','vendas','empresa','admin','portal'].includes(h)?h:'hoje';if(papel()==='corretor')view='portal';else if(view==='portal'||(view==='admin'&&!window.isAdm))view='hoje';if(view!=='corretores'&&view!=='diario')sel=null;render()}
 addEventListener('hashchange',()=>{sel=null;route()});
 route();
-window.isAdm=false;centralAuth.start(st=>{window.isAdm=st.perfil.papel==='admin';$('#whoName').textContent=st.perfil.nome+(window.isAdm?'':' · somente visualização');if(!window.isAdm){document.body.classList.add('ro');const stl=document.createElement('style');stl.textContent='body.ro [data-act]:not('+[...RO_OK].map(a=>'[data-act="'+a+'"]').join(',')+'):not(.card){display:none!important}body.ro textarea,body.ro #notaTxt{pointer-events:none;opacity:.8}';document.head.appendChild(stl)}const h=document.querySelector('.brand h1');if(h)h.textContent='Central da Gestão — '+st.perfil.nome;boot();voiceInit()});
+window.isAdm=false;centralAuth.start(st=>{const pp=st.perfil.papel;window.isAdm=pp==='admin';$('#whoName').textContent=st.perfil.nome+(pp==='gestor'?' · gestor':pp==='corretor'?'':'');
+ if(!window.isAdm){document.body.classList.add('ro');if(pp==='corretor')document.body.classList.add('cor');const ok=[...RO_OK,...(pp==='gestor'?[...G_OK]:[])];const stl=document.createElement('style');stl.textContent='body.ro [data-act]:not('+ok.map(a=>'[data-act="'+a+'"]').join(',')+'):not(.card):not(.negc){display:none!important}body.ro #dlg.gok [data-act="fsave"]{display:inline-flex!important}body.ro #fbNext,body.ro #notaTxt,body.ro #main textarea[data-k],body.ro #notaMes{pointer-events:none;opacity:.8}';document.head.appendChild(stl)}
+ if(window.isAdm){const n=$('#nav');if(n&&!n.querySelector('[href="#admin"]'))n.insertAdjacentHTML('beforeend','<a href="#admin">Administração</a>')}
+ const h=document.querySelector('.brand h1');if(h)h.textContent=pp==='corretor'?'Minha gestão — '+st.perfil.nome:'Central da Gestão — '+st.perfil.nome;if(pp==='corretor'){const sm=document.querySelector('.brand small');if(sm)sm.textContent='Reserva Imob · Balneário Camboriú'}
+ route();boot();voiceInit()});
 }
 </script>
 </body>
