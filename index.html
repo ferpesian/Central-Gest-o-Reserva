@@ -646,7 +646,7 @@ async function toDrive(){const st=$('#repSt');const mcp=await capUse('mcp');if(!
 /* ---------- eventos ---------- */
 document.addEventListener('click',async ev=>{const el=ev.target.closest('[data-act]');if(!el)return;const A=el.dataset.act,id=el.dataset.id;
  if(A==='logout')return centralAuth.logout();
- if(A==='imp'){if(!window.isAdm)return toast('Só o administrador importa backup');const inp=document.createElement('input');inp.type='file';inp.accept='.json';inp.onchange=async()=>{try{const j=JSON.parse(await inp.files[0].text());let n=0;for(const c of COLS){if(Array.isArray(j[c])&&j[c].length){n+=await centralImport(c,j[c])}}toast(n+' registros importados')}catch(e){toast('Falhou: '+(e.message||e))}};inp.click();return}
+ if(A==='imp'){if(!window.isAdm)return toast('Só o administrador importa backup');const inp=document.createElement('input');inp.type='file';inp.accept='.json';inp.onchange=async()=>{try{const j=JSON.parse(await inp.files[0].text());let n=0;for(const c of COLS){let arr=Array.isArray(j[c])?j[c]:[];if(c==='docs')arr=arr.filter(x=>(x.data||x).cat!=='Comissões');if(arr.length){n+=await centralImport(c,arr)}}toast(n+' registros importados')}catch(e){toast('Falhou: '+(e.message||e))}};inp.click();return}
  if(A==='mic'){if(!dict)return;if(voice.state!=='idle'){dict.stop().catch(()=>{});return}dict.start({language:'pt-BR'}).catch(e=>{if(e.code==='unavailable'){dict.start().catch(()=>{})}else if(e.code==='not_granted')toast('Microfone não autorizado. Digite o texto.');else if(e.code!=='stopped'&&e.code!=='dismissed')toast('Não deu para gravar ('+e.code+')')});return}
  if(A==='lider')return liderDlg(el.dataset.d,'dia');
  if(A==='liderW')return liderDlg(el.dataset.d,'semana');
