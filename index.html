@@ -99,6 +99,7 @@ pre.note{white-space:pre-wrap;font:14px/1.55 Inter;margin:6px 0 0}
 #login button{width:100%;margin-top:16px;padding:12px;border:0;border-radius:8px;background:var(--green);color:#fff;font:600 15px Inter}
 #login .lk{background:none;color:var(--mute);margin-top:8px;font-weight:500;font-size:13px}
 .who{display:flex;gap:8px;align-items:center;font-size:12.5px;color:#a9bbd3}.who button{background:#ffffff1a;color:#fff;border:0;border-radius:6px;padding:5px 10px;font:inherit;cursor:pointer}
+.funDet summary::-webkit-details-marker{display:none}.funDet .funArr{display:inline-block;transition:transform .15s}.funDet[open] .funArr{transform:rotate(90deg)}
 </style>
 <script>new MutationObserver(()=>{for(const c of document.querySelectorAll('.stack td:not([data-l])')){let i=0,p=c;while(p=p.previousElementSibling)i+=p.colSpan;c.dataset.l=c.closest('table').rows[0].cells[i]?.textContent||''}}).observe(document,{childList:true,subtree:true})</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -741,12 +742,13 @@ function timeFunilBox(){const T=funTime();if(!T.n)return '';const m=T.metas||{};
  const cs=S.corretores.filter(c=>c.funil&&c.status!=='Inativo').sort((a,b)=>(b.funil.n||0)-(a.funil.n||0));
  const cell=(c,key,inv)=>{const v=c.funil[key],t=T[key];if(v==null||t==null)return '<td class="num mute">—</td>';const st=Math.abs(v-t)<=2?'=':((v>t)!==!!inv?'▲':'▼');return `<td class="num">${v}% <span style="color:${st==='▲'?'var(--green)':st==='▼'?'var(--red)':'var(--mute)'}">${st}</span></td>`};
  const fora=(T.ganhosForaTime||[]).map(g=>`${esc(g.quem)}: ${esc(g.cliente||'')} (${esc(g.nota||'')})`).join(' · ');
- return `<section class="box" style="margin-top:14px"><div class="row sp"><h3>Funil do time — taxas de conversão</h3><span class="sm mute">${esc(T.periodo||'')}${T.atualizado?' · atualizado '+fd(T.atualizado):''}</span></div>
+ const resumo=[['taxaContato','contato'],['atendVisita','atend→visita'],['visitaProposta','visita→prop.'],['propostaFechDesfecho','fech.']].filter(([x])=>T[x]!=null).map(([x,l])=>`${l} <b>${T[x]}%</b>`).join(' · ');
+ return `<details class="box funDet" style="margin-top:14px" ontoggle="window.__funOpen=this.open" ${window.__funOpen?'open':''}><summary style="cursor:pointer;list-style:none"><div class="row sp"><h3 style="margin:0"><span class="funArr">▸</span> Funil do time — taxas de conversão</h3><span class="sm mute">${esc(T.periodo||'')}${T.atualizado?' · atualizado '+fd(T.atualizado):''}</span></div><div class="sm" style="margin-top:4px">${resumo} <span class="mute">· clique para ver por corretor</span></div></summary>
  <div class="kpis" style="margin:8px 0">${k.filter(([x])=>T[x]!=null).map(([x,l])=>`<div class="kpi"><b>${T[x]}%</b><span>${l}</span></div>`).join('')}</div>
  <div class="sm mute">${T.n} negócios · ${T.ganhos||0} ganhos${T.ganhosCorretores!=null?' ('+T.ganhosCorretores+' dos corretores)':''} · ${T.semCadencia||0} sem cadência · ${T.cadenciaVencida||0} cadências vencidas${fora?' · Fora do time: '+fora:''}</div>
  <div class="scroll" style="margin-top:10px"><table class="stack"><thead><tr><th>Corretor</th><th class="num">Negócios</th><th class="num">Contato</th><th class="num">Atend→Visita</th><th class="num">Visita→Prop.</th><th class="num">Fech. c/ desfecho</th><th class="num">Sem cadência</th><th class="num">Cad. vencida</th></tr></thead><tbody>
  ${cs.map(c=>`<tr class="click" data-act="openC" data-id="${c.id}"><td>${esc(c.apelido||c.nome)}${c.funil.amostraPequena?' <span class="mute sm">amostra pequena</span>':''}</td><td class="num">${c.funil.n||0}</td>${cell(c,'taxaContato')}${cell(c,'atendVisita')}${cell(c,'visitaProposta')}${cell(c,'propostaFechDesfecho')}${cell(c,'pctSemCadencia',1)}${cell(c,'pctCadVencida',1)}</tr>`).join('')}
- </tbody></table></div><p class="sm mute">▲ melhor que o time · ▼ pior · = na média. Clique no corretor para ver o detalhe.</p></section>`}
+ </tbody></table></div><p class="sm mute">▲ melhor que o time · ▼ pior · = na média. Clique no corretor para ver o detalhe.</p></details>`}
 
 function vCorretores(){if(sel&&sel.cor&&cor(sel.cor))return vCor(cor(sel.cor));const d=today();
  const a=S.corretores.slice().sort((x,y)=>x.nome.localeCompare(y.nome));
